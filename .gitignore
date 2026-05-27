@@ -1,0 +1,55 @@
+# dependencies
+node_modules/
+.pnpm-store/
+.pnp
+.pnp.js
+
+# next.js
+.next/
+out/
+build/
+dist/
+
+# env files (TUNDLIK — sisaldab API võtmeid)
+.env
+.env*.local
+.env.production
+SETUP.txt
+
+# logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# misc
+.DS_Store
+*.pem
+.vercel
+.idea/
+.vscode/
+
+# testing
+coverage/
+.nyc_output/
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# supabase
+supabase/.branches
+supabase/.temp
+supabase/.env
+
+# claude code temp
+.claude/
+
+# data exports + private source documents (kohalikud, mitte repo)
+exports/
+backups/
+*.csv.local
+eelarvetabel.xlsx
+vk_kataloog_v1.xlsx
+*.pdf
