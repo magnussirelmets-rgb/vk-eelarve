@@ -22,13 +22,13 @@ export async function generateMetadata({ params }: { params: { id: string } }) {
     .maybeSingle();
   const pk = data as { vkp_nr: string; objekt: string | null } | null;
   if (!pk) return { title: "Pakkumus" };
-  // Print-dialoogis brauseri header näitab seda — kasuta puhast pakkumise nime
-  // (mitte "VK Eelarve" mis on globaalne title)
   return {
     title: `${pk.vkp_nr}${pk.objekt ? ` — ${pk.objekt}` : ""}`,
   };
 }
 
+// Vaikenimed standardkoodidele. Kasutame AINULT kui kasutaja sektsioon väärtus
+// on ainult kood (nt "711"). Kui on "711 Puurkaevude rajamine" → tema väärtus jääb peale.
 const SEKT_KIRJELDUS: Record<string, string> = {
   "711": "Veevarustus",
   "712": "Kanalisatsioon",
@@ -38,6 +38,17 @@ const SEKT_KIRJELDUS: Record<string, string> = {
   "723": "Soojussõlm",
   "724": "Ventilatsioon",
 };
+
+function sektsiooniLabel(sekt: string | null | undefined): string {
+  if (!sekt) return "(määramata)";
+  const trimmed = String(sekt).trim();
+  if (!trimmed) return "(määramata)";
+  const code = sektsiooniKood(trimmed);
+  if (code && trimmed === code && SEKT_KIRJELDUS[code]) {
+    return `${code} ${SEKT_KIRJELDUS[code]}`;
+  }
+  return trimmed;
+}
 
 const ALAMSEKT_PLACEHOLDER = "(üldine)";
 
@@ -103,8 +114,7 @@ export default async function TrükkPage({ params }: { params: { id: string } })
 
   // Serialiseeritud kuju kliendi-komponendi jaoks (Map -> array; eriosa label arvutatud)
   const eriosadProp: Eriosa[] = sektsioonid.map(([sekt, v]) => {
-    const code = sektsiooniKood(sekt);
-    const sektLabel = code && SEKT_KIRJELDUS[code] ? `${code} ${SEKT_KIRJELDUS[code]}` : sekt;
+    const sektLabel = sektsiooniLabel(sekt);
     const alamList = Array.from(v.alamsektsioonid.entries()).sort(([a], [b]) => {
       if (a === ALAMSEKT_PLACEHOLDER) return 1;
       if (b === ALAMSEKT_PLACEHOLDER) return -1;
@@ -242,9 +252,7 @@ export default async function TrükkPage({ params }: { params: { id: string } })
               </thead>
               <tbody>
                 {sektsioonid.map(([sekt, v]) => {
-                  const code = sektsiooniKood(sekt);
-                  const sektLabel =
-                    code && SEKT_KIRJELDUS[code] ? `${code} ${SEKT_KIRJELDUS[code]}` : sekt;
+                  const sektLabel = sektsiooniLabel(sekt);
                   const marg = v.materjal - v.omahind;
                   const margPct = v.materjal > 0 ? (marg / v.materjal) * 100 : 0;
                   return (

@@ -16,7 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Loader2, Package, Plus } from "lucide-react";
 import { formatEur, formatNum } from "@/lib/utils";
-import { loendaKomplektid, lisaKomplektPakkumisse } from "../actions";
+import { loendaKomplektid, lisaKomplektPakkumisse, type KomplektiLisamiseRežiim } from "../actions";
 
 type KomplektInfo = {
   id: string;
@@ -44,6 +44,7 @@ export function LisaKomplektDialog({ pakkumineId, soovituslikudEriosad = [] }: P
   const [sektsioon, setSektsioon] = useState("");
   const [alamsektsioon, setAlamsektsioon] = useState("");
   const [kordaja, setKordaja] = useState("1");
+  const [režiim, setRežiim] = useState<KomplektiLisamiseRežiim>("kokku_rida");
   const [err, setErr] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -62,6 +63,7 @@ export function LisaKomplektDialog({ pakkumineId, soovituslikudEriosad = [] }: P
     setSektsioon("");
     setAlamsektsioon("");
     setKordaja("1");
+    setRežiim("kokku_rida");
     setErr(null);
   }
 
@@ -83,6 +85,7 @@ export function LisaKomplektDialog({ pakkumineId, soovituslikudEriosad = [] }: P
         sektsioon: sektsioon.trim(),
         alamsektsioon: alamsektsioon.trim() || null,
         koguseKordaja: k,
+        režiim,
       });
       if (r.ok) {
         setOpen(false);
@@ -226,15 +229,57 @@ export function LisaKomplektDialog({ pakkumineId, soovituslikudEriosad = [] }: P
               placeholder="1"
             />
             <p className="text-[10px] text-muted-foreground">
-              Iga komplekti rea kogus korrutatakse selle teguriga (nt 2 puurkaevu = 2).
+              Nt 2 puurkaevu = 2.
             </p>
+          </div>
+        </div>
+
+        {/* Lisamise režiim */}
+        <div className="space-y-1.5 rounded-md border border-vk-blue/30 bg-vk-blue/5 p-3">
+          <Label className="text-xs">Kuidas lisada pakkumisse?</Label>
+          <div className="flex flex-col gap-2 text-xs sm:flex-row">
+            <label className="flex flex-1 cursor-pointer items-start gap-2 rounded-md border bg-card p-2 hover:border-vk-blue">
+              <input
+                type="radio"
+                name="režiim"
+                value="kokku_rida"
+                checked={režiim === "kokku_rida"}
+                onChange={() => setRežiim("kokku_rida")}
+                className="mt-0.5 accent-vk-blue"
+              />
+              <div>
+                <div className="font-semibold text-vk-navy">Üks koondrida</div>
+                <div className="text-muted-foreground">
+                  Komplekt lisatakse ühe positsioonina (nimetus = komplekti nimi, hind kokku).
+                  Klient näeb ühte rida, mitte iga komponendi eraldi hinda.
+                </div>
+              </div>
+            </label>
+            <label className="flex flex-1 cursor-pointer items-start gap-2 rounded-md border bg-card p-2 hover:border-vk-blue">
+              <input
+                type="radio"
+                name="režiim"
+                value="eraldi_read"
+                checked={režiim === "eraldi_read"}
+                onChange={() => setRežiim("eraldi_read")}
+                className="mt-0.5 accent-vk-blue"
+              />
+              <div>
+                <div className="font-semibold text-vk-navy">Eraldi read</div>
+                <div className="text-muted-foreground">
+                  Iga komplekti komponent = eraldi positsioon (puurmasin, kollektor, paigaldus
+                  eraldi). Detailne breakdown nähtav.
+                </div>
+              </div>
+            </label>
           </div>
         </div>
 
         {valitudKomplekt && Number(kordaja.replace(",", ".")) > 0 ? (
           <div className="rounded-md border bg-muted/30 p-2 text-xs">
             <span className="font-semibold">Lisanduvad ridu:</span>{" "}
-            {valitudKomplekt.ridu} · <span className="font-semibold">Materjal kokku:</span>{" "}
+            {režiim === "kokku_rida" ? "1 (koondrida)" : valitudKomplekt.ridu} ·{" "}
+            <span className="font-semibold">Materjal kokku:</span>{" "}
             {formatEur(valitudKomplekt.materjalKokku * (Number(kordaja.replace(",", ".")) || 1))}
             {valitudKomplekt.tööH > 0
               ? ` · Töö: ${formatNum(valitudKomplekt.tööH * (Number(kordaja.replace(",", ".")) || 1))} h`
