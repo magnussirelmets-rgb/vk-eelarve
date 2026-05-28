@@ -15,6 +15,7 @@ import { PakkumiseSeadedForm } from "./pakkumise-seaded";
 import { KustutaPakkumineNupp } from "../kustuta-nupp";
 import { LisaKomplektDialog } from "./lisa-komplekt-dialog";
 import { KiirLisaRida } from "./kiir-lisa-rida";
+import { TarnijaFailDialog } from "./tarnija-fail-dialog";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -162,19 +163,34 @@ export default async function PakkumineDetailPage({ params }: { params: { id: st
 
       <ActionBar pakkumineId={pakkumine.id} mahutabelid={mahutabelid} />
 
-      {/* Komplekti lisamine ühe eriosana */}
-      <div className="flex items-center justify-between rounded-lg border border-dashed bg-card px-4 py-2">
-        <div className="text-xs text-muted-foreground">
-          Lisa salvestatud komplekt (nt &quot;Puurkaevude rajamine&quot;) tervikuna ühe eriosa alla.
+      {/* Read lisamise valikud */}
+      <div className="grid gap-2 sm:grid-cols-2">
+        <div className="flex items-center justify-between rounded-lg border border-dashed bg-card px-4 py-2">
+          <div className="text-xs text-muted-foreground">
+            Lae tarnija pakkumis-fail (PDF/Excel), vali read linnukestega.
+          </div>
+          <TarnijaFailDialog
+            pakkumineId={pakkumine.id}
+            soovituslikudEriosad={
+              pakkumine.mall && PAKKUMISE_MALL_BY_ID[pakkumine.mall]
+                ? PAKKUMISE_MALL_BY_ID[pakkumine.mall].soovituslikudEriosad
+                : []
+            }
+          />
         </div>
-        <LisaKomplektDialog
-          pakkumineId={pakkumine.id}
-          soovituslikudEriosad={
-            pakkumine.mall && PAKKUMISE_MALL_BY_ID[pakkumine.mall]
-              ? PAKKUMISE_MALL_BY_ID[pakkumine.mall].soovituslikudEriosad
-              : []
-          }
-        />
+        <div className="flex items-center justify-between rounded-lg border border-dashed bg-card px-4 py-2">
+          <div className="text-xs text-muted-foreground">
+            Lisa valmis komplekt (nt &quot;Puurkaevude rajamine&quot;) eriosana.
+          </div>
+          <LisaKomplektDialog
+            pakkumineId={pakkumine.id}
+            soovituslikudEriosad={
+              pakkumine.mall && PAKKUMISE_MALL_BY_ID[pakkumine.mall]
+                ? PAKKUMISE_MALL_BY_ID[pakkumine.mall].soovituslikudEriosad
+                : []
+            }
+          />
+        </div>
       </div>
 
       <PakkumiseSeadedForm

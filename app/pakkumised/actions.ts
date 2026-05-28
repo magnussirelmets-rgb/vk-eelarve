@@ -1109,6 +1109,86 @@ export async function lisaKomplektPakkumisse(input: {
   return { ok: true, lisatudRidu: count ?? positsioonid.length };
 }
 
+// Tarnija PDF/Excel-pakkumusest valitud read → positsioonidena pakkumisse.
+// Käivitub PÄRAST /api/pakkumised/[id]/parse-tarnija-fail kutset, kui kasutaja
+// on klient-poolses dialoogis linnukestega valinud millised read lisada.
+export type TarnijaPakkumiseRida = {
+  tarnija_nimetus: string;
+  tarnija_kood: string | null;
+  tarnija_brand: string | null;
+  ühik: string | null;
+  kogus: number | null;
+  ostuhind_neto: number | null;
+  kirjeldus: string | null;
+  sektsioon: string | null; // soovituslik sektsioon (kui PDF-is olemas) — Magnus saab dialoogis muuta
+};
+
+export async function lisaTarnijaReadPakkumisse(input: {
+  pakkumineId: string;
+  read: TarnijaPakkumiseRida[];
+  sihtSektsioon: string | null; // Magnuse valitud eriosa kõikide lisatavate ridade jaoks
+  sihtAlamsektsioon: string | null;
+  tarnija: string | null; // tarnija nimi (snapshot — nt "Küttemaailm")
+}): Promise<{ ok: true; lisatud: number } | { ok: false; error: string }> {
+  if (!input.pakkumineId) return { ok: false, error: "Pakkumise ID puudub" };
+  if (!input.read || input.read.length === 0) return { ok: false, error: "Pole ühtegi rida valitud" };
+  const sb = getServerSupabase();
+
+  // Lae pakkumise kate snapshot'iks
+  const { data: pakk } = await sb
+    .from("pakkumised")
+    .select("kate_koefitsient")
+    .eq("id", input.pakkumineId)
+    .maybeSingle();
+  if (!pakk) return { ok: false, error: "Pakkumist ei leitud" };
+  const pakkKate = (pakk as { kate_koefitsient: number }).kate_koefitsient ?? 1;
+
+  // Leia järgmine rea_nr
+  const { data: maxRida } = await sb
+    .from("positsioonid")
+    .select("rea_nr")
+    .eq("pakkumine_id", input.pakkumineId)
+    .order("rea_nr", { ascending: false, nullsFirst: false })
+    .limit(1)
+    .maybeSingle();
+  const startReaNr = ((maxRida as { rea_nr: number | null } | null)?.rea_nr ?? 0) + 1;
+
+  const sihtSekt = input.sihtSektsioon?.trim() || null;
+  const sihtAlam = input.sihtAlamsektsioon?.trim() || null;
+  const tarnijaName = input.tarnija?.trim() || null;
+
+  const positsioonid = input.read.map((r, idx) => ({
+    pakkumine_id: input.pakkumineId,
+    rea_nr: startReaNr + idx,
+    sektsioon: sihtSekt || r.sektsioon?.trim() || null,
+    alamsektsioon: sihtAlam,
+    nimetus: r.tarnija_nimetus,
+    tähis: null,
+    kogus: r.kogus ?? 1,
+    ühik: r.ühik,
+    toode_id: null,
+    toote_match_confidence: null,
+    toote_match_põhjendus: `tarnija ${tarnijaName ?? "PDF"} import`,
+    toode_snapshot_tarnija: tarnijaName,
+    toode_snapshot_kood: r.tarnija_kood,
+    toode_snapshot_nimetus: r.tarnija_nimetus,
+    toode_snapshot_brand: r.tarnija_brand,
+    ostuhind_snapshot: r.ostuhind_neto,
+    paigaldusaeg_snapshot: null,
+    kate_snapshot: pakkKate,
+    kirjeldus: r.kirjeldus,
+    manuaalselt_muudetud: false,
+  }));
+
+  const { error, count } = await sb
+    .from("positsioonid")
+    .insert(positsioonid, { count: "exact" });
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath(`/pakkumised/${input.pakkumineId}`);
+  return { ok: true, lisatud: count ?? positsioonid.length };
+}
+
 export async function kustutaPakkumine(
   pakkumineId: string,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
