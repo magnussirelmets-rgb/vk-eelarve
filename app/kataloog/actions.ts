@@ -325,7 +325,7 @@ export async function kataloogiImport(
           if (vea_näited.length < 10) vea_näited.push(`Rida ${ri + 1}: id "${id.slice(0, 8)}…" ei leitud`);
         }
       } else {
-        // Insert: vajab hinnakirja_id
+        // Insert või update — vajab hinnakirja_id
         const tarnijaKey = tarnija || "VK Manuaalsed";
         let hkId = hkCache.get(tarnijaKey);
         if (!hkId) {
@@ -339,6 +339,40 @@ export async function kataloogiImport(
           hkId = got;
           hkCache.set(tarnijaKey, hkId);
         }
+
+        // Faas 1: kui sama (hinnakirja_id, tarnija_kood) juba eksisteerib,
+        // UPDATE olemasolev rida (mitte viska duplicate-key viga).
+        const tarnijaKood =
+          upd.tarnija_kood !== undefined && upd.tarnija_kood !== null
+            ? String(upd.tarnija_kood)
+            : null;
+        let olemasolevaId: string | null = null;
+        if (tarnijaKood) {
+          const { data: olemasolev } = await sb
+            .from("hinnakirja_read")
+            .select("id")
+            .eq("hinnakiri_id", hkId)
+            .eq("tarnija_kood", tarnijaKood)
+            .maybeSingle();
+          olemasolevaId = (olemasolev as { id: string } | null)?.id ?? null;
+        }
+
+        if (olemasolevaId) {
+          // UPDATE — sama kood juba olemas, uuendame väärtused
+          const { error } = await sb
+            .from("hinnakirja_read")
+            .update(upd)
+            .eq("id", olemasolevaId);
+          if (error) {
+            vigade_arv++;
+            if (vea_näited.length < 10) vea_näited.push(`Rida ${ri + 1}: ${error.message}`);
+          } else {
+            uuendatud++;
+          }
+          continue;
+        }
+
+        // INSERT — uus rida
         const { error } = await sb.from("hinnakirja_read").insert({
           hinnakiri_id: hkId,
           tarnija_nimetus: nimetus,
