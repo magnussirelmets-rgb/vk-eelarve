@@ -13,6 +13,22 @@ import { BRAND } from "@/lib/brand";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+export async function generateMetadata({ params }: { params: { id: string } }) {
+  const sb = getServerSupabase();
+  const { data } = await sb
+    .from("pakkumised")
+    .select("vkp_nr, objekt")
+    .eq("id", params.id)
+    .maybeSingle();
+  const pk = data as { vkp_nr: string; objekt: string | null } | null;
+  if (!pk) return { title: "Pakkumus" };
+  // Print-dialoogis brauseri header näitab seda — kasuta puhast pakkumise nime
+  // (mitte "VK Eelarve" mis on globaalne title)
+  return {
+    title: `${pk.vkp_nr}${pk.objekt ? ` — ${pk.objekt}` : ""}`,
+  };
+}
+
 const SEKT_KIRJELDUS: Record<string, string> = {
   "711": "Veevarustus",
   "712": "Kanalisatsioon",
@@ -137,6 +153,21 @@ export default async function TrükkPage({ params }: { params: { id: string } })
   const kateMaterjalist = grandMaterjalMüük > 0 ? (materjaliMarginaalEur / grandMaterjalMüük) * 100 : 0;
 
   return (
+    <>
+    {/* Fixed footer — kordub IGAL print-lehel. Asetatud root-tasandil (mitte
+        kasti sees), et browser-print correctly fixed-position rendaks. */}
+    <div className="pdf-fixed-footer">
+      <div className="pdf-footer-left">
+        {BRAND.nimi}
+        <span className="pdf-footer-soft"> · {BRAND.aadress}</span>
+      </div>
+      <div className="pdf-footer-right">
+        {BRAND.email} · {BRAND.telefon}
+        <br />
+        {pakkumine.vkp_nr} · {formatDate(pakkumine.pakkumise_kuupäev)}
+      </div>
+    </div>
+
     <div className="mx-auto max-w-4xl space-y-6 p-6 print:p-0">
       {/* Toiming-nupud (print: hidden) */}
       <div className="flex items-center justify-between print:hidden">
@@ -329,7 +360,7 @@ export default async function TrükkPage({ params }: { params: { id: string } })
 
         {/* MÄRKUSED */}
         {pakkumine.märkused ? (
-          <div className="mx-8 mb-6 border-t pt-4 print:mx-6 print:mb-4">
+          <div className="mx-8 mb-6 border-t pt-4 print:mx-6 print:mb-4 pdf-no-break">
             <div className="text-[10px] font-semibold uppercase tracking-[0.15em] text-vk-blue">
               Märkused
             </div>
@@ -340,7 +371,7 @@ export default async function TrükkPage({ params }: { params: { id: string } })
         ) : null}
 
         {/* ALLKIRI + JALUS */}
-        <div className="border-t border-vk-navy/10 bg-muted/30 px-8 py-5 print:px-6 print:py-4 print:bg-transparent">
+        <div className="border-t border-vk-navy/10 bg-muted/30 px-8 py-5 print:px-6 print:py-4 print:bg-transparent pdf-no-break">
           <div className="grid gap-6 sm:grid-cols-2">
             <div className="text-xs">
               <div className="font-semibold text-vk-navy">Pakkumise koostas</div>
@@ -356,8 +387,8 @@ export default async function TrükkPage({ params }: { params: { id: string } })
           </div>
         </div>
 
-        {/* JALUSE BÄND — navy + kontakt */}
-        <div className="bg-vk-navy text-white">
+        {/* JALUSE BÄND — navy + kontakt. Ekraani-jaoks; print'is peidetud (asendub pdf-fixed-footer'iga). */}
+        <div className="bg-vk-navy text-white pdf-screen-footer">
           <div className="flex h-1">
             <div className="flex-[1] bg-vk-red" />
             <div className="flex-[3] bg-vk-blue" />
@@ -378,5 +409,6 @@ export default async function TrükkPage({ params }: { params: { id: string } })
         </div>
       </div>
     </div>
+    </>
   );
 }

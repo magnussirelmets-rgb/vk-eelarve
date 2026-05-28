@@ -41,11 +41,96 @@
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
+
+  /* @page margin: ülemine väike (peidab brauseri header'i kuupäev/title osa servale),
+     alumine 22mm = ruum fixed footerile + brauseri footer'i alale */
   @page {
     size: A4;
-    margin: 14mm 14mm 18mm 14mm;
+    margin: 10mm 12mm 22mm 12mm;
   }
+
   html, body {
     background: white !important;
+  }
+
+  /* ============================================================
+     PAGE-BREAK HELPER KLASSID
+     Lisa neid komponentidele, mida ei tohi lehe vahel lõhki lõigata.
+     ============================================================ */
+
+  /* Plokk ei tohi end keset lõhki lõigata — kasuta sektsioonide,
+     allkirja, kogusumma jne plokkidel */
+  .pdf-no-break,
+  .pdf-no-break * {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  /* Pealkiri/eriosa-header peab jääma järgmise reaga koos —
+     väldib "header viimasel real, sisu järgmise lehe peal" */
+  .pdf-keep-with-next {
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+
+  /* Üksik tabeli rida ei tohi keset poolitada */
+  table tr,
+  thead tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  thead {
+    display: table-header-group; /* päise rida korduvalt iga lehe alguses */
+  }
+  tfoot {
+    display: table-footer-group;
+  }
+
+  /* ============================================================
+     FIXED FOOTER — kordub IGAL lehel
+     Browser-print kapriis: töötab Chrome'is ja Safaris stabiilselt
+     kui element on otse body all (mitte mässitud transform/filter
+     parent'iga, mis loob uue stacking context'i).
+     ============================================================ */
+  .pdf-fixed-footer {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 16mm;
+    background: white !important;
+    border-top: 1px solid #d4d4d8;
+    padding: 4mm 12mm 0 12mm;
+    display: flex !important;
+    justify-content: space-between;
+    align-items: flex-start;
+    font-size: 8.5pt;
+    color: #6b7280;
+    z-index: 9999;
+  }
+  .pdf-fixed-footer .pdf-footer-left {
+    font-weight: 600;
+    color: #1a1b4b;
+  }
+  .pdf-fixed-footer .pdf-footer-right {
+    text-align: right;
+    line-height: 1.4;
+  }
+
+  /* Peida ekraani-jalus print-mode'is (jaluse bänd letterhead'is) */
+  .pdf-screen-footer {
+    display: none !important;
+  }
+
+  /* Print-spetsiifiline title overrides */
+  body {
+    counter-reset: page;
+  }
+}
+
+/* Ekraan: pdf-fixed-footer alati peidetud, näha vaid trükkimisel */
+@media screen {
+  .pdf-fixed-footer {
+    display: none !important;
   }
 }

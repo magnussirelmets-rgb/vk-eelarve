@@ -127,8 +127,12 @@ export function EriosaTabel({
             ) : (
               eriosad.flatMap((v) => {
                 const rows: React.ReactNode[] = [];
+                // pdf-keep-with-next: sekt header ei jää lehe lõppu ilma järgneva reata
                 rows.push(
-                  <tr key={`sekt-${v.sekt}`} className="border-b border-vk-navy/10">
+                  <tr
+                    key={`sekt-${v.sekt}`}
+                    className="border-b border-vk-navy/10 pdf-keep-with-next"
+                  >
                     <td className="py-2.5 align-middle">
                       <div className="flex items-stretch gap-2.5">
                         <span className="-my-2.5 w-1 shrink-0 bg-vk-blue" />
@@ -158,7 +162,7 @@ export function EriosaTabel({
                     rows.push(
                       <tr
                         key={`sekt-${v.sekt}-rida-${i}`}
-                        className="border-b border-dotted bg-muted/10"
+                        className="border-b border-dotted bg-muted/10 pdf-no-break"
                       >
                         <td className="py-1.5 pl-6 text-xs">
                           <div className="text-vk-navy">
@@ -226,8 +230,8 @@ export function EriosaTabel({
         </table>
       </div>
 
-      {/* KOGUSUMMA */}
-      <div className="mx-8 mb-6 mt-3 print:mx-6 print:mb-4">
+      {/* KOGUSUMMA — pdf-no-break, et neto+KM+kokku-blokk püsiks tervena */}
+      <div className="mx-8 mb-6 mt-3 print:mx-6 print:mb-4 pdf-no-break">
         <table className="w-full text-sm">
           <tbody>
             <tr className="border-t-2 border-vk-navy">
