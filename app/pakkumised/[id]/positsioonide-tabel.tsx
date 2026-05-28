@@ -30,6 +30,9 @@ import { useEffect, useRef } from "react";
 import { ToodeValija } from "./toote-valija";
 import { LisaPositsioonDialog } from "./lisa-positsioon-dialog";
 
+// SEKT_KIRJELDUS = vaikenimed standardkoodidele. Kasutame AINULT siis kui
+// kasutaja sektsioon väärtus on ainult kood (nt "711"). Kui kasutaja on
+// lisanud oma nime (nt "711 Puurkaevude rajamine"), siis tema väärtus jääb peale.
 const SEKT_KIRJELDUS: Record<string, string> = {
   "711": "Veevarustus",
   "712": "Kanalisatsioon",
@@ -39,6 +42,18 @@ const SEKT_KIRJELDUS: Record<string, string> = {
   "723": "Soojussõlm",
   "724": "Ventilatsioon",
 };
+
+function sektsiooniLabel(sekt: string | null | undefined): string {
+  if (!sekt) return "(määramata)";
+  const trimmed = String(sekt).trim();
+  if (!trimmed) return "(määramata)";
+  const code = sektsiooniKood(trimmed);
+  // Kui väärtus on AINULT kood (nt "711") ja meil on vaikenimi → liidame
+  if (code && trimmed === code && SEKT_KIRJELDUS[code]) {
+    return `${code} ${SEKT_KIRJELDUS[code]}`;
+  }
+  return trimmed;
+}
 
 const ALAMSEKT_PLACEHOLDER = "(üldine)"; // kuvatakse kui alamsektsioon puudub
 
@@ -429,8 +444,7 @@ export function PositsioonideTabel({ pakkumineId, positsioonid, kate_koefitsient
               Kõik <span className="ml-1 text-xs opacity-70">{positsioonid.length}</span>
             </button>
             {sections.map(([key, count]) => {
-              const code = sektsiooniKood(key);
-              const label = code && SEKT_KIRJELDUS[code] ? `${code} ${SEKT_KIRJELDUS[code]}` : key;
+              const label = sektsiooniLabel(key);
               return (
                 <div key={key} className="flex items-center gap-1">
                   <button
@@ -606,8 +620,7 @@ export function PositsioonideTabel({ pakkumineId, positsioonid, kate_koefitsient
                   </TableRow>
                 ) : (
                   grouped.flatMap(([sekt, subList]) => {
-                    const code = sektsiooniKood(sekt);
-                    const sektLabel = code && SEKT_KIRJELDUS[code] ? `${code} ${SEKT_KIRJELDUS[code]}` : sekt;
+                    const sektLabel = sektsiooniLabel(sekt);
                     const sektCalc = sektsiooniArvutus.get(sekt);
                     const sektRidadeIdid: string[] = [];
                     for (const [, rrs] of subList) for (const r of rrs) sektRidadeIdid.push(r.id);
@@ -889,8 +902,7 @@ export function PositsioonideTabel({ pakkumineId, positsioonid, kate_koefitsient
                 </TableHeader>
                 <TableBody>
                   {sections.flatMap(([key]) => {
-                    const code = sektsiooniKood(key);
-                    const sektLabel = code && SEKT_KIRJELDUS[code] ? `${code} ${SEKT_KIRJELDUS[code]}` : key;
+                    const sektLabel = sektsiooniLabel(key);
                     const v = sektsiooniArvutus.get(key);
                     if (!v) return [];
                     const rows: React.ReactNode[] = [];
