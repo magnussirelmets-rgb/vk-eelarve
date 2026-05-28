@@ -1020,12 +1020,15 @@ export async function loendaKomplektid(): Promise<
   }));
 }
 
+export type KomplektiLisamiseRežiim = "eraldi_read" | "kokku_rida";
+
 export async function lisaKomplektPakkumisse(input: {
   pakkumineId: string;
   komplektId: string;
   sektsioon: string;
   alamsektsioon: string | null;
   koguseKordaja: number; // kogu komplekti rida.kogus korrutatakse selle teguriga (default 1)
+  režiim?: KomplektiLisamiseRežiim; // 'eraldi_read' (default) | 'kokku_rida'
 }): Promise<{ ok: true; lisatudRidu: number } | { ok: false; error: string }> {
   if (!input.pakkumineId || !input.komplektId) {
     return { ok: false, error: "Pakkumise või komplekti ID puudub" };
@@ -1034,15 +1037,17 @@ export async function lisaKomplektPakkumisse(input: {
     return { ok: false, error: "Sektsioon (eriosa) on kohustuslik" };
   }
   const kordaja = Number.isFinite(input.koguseKordaja) && input.koguseKordaja > 0 ? input.koguseKordaja : 1;
+  const režiim: KomplektiLisamiseRežiim = input.režiim ?? "eraldi_read";
   const sb = getServerSupabase();
 
-  // 1) Lae komplekti read + pakkumise kate (vajame snapshot'i jaoks)
-  const [{ data: kompRead }, { data: pakk }] = await Promise.all([
+  // 1) Lae komplekti read + komplekti päis + pakkumise kate
+  const [{ data: kompRead }, { data: komplekt }, { data: pakk }] = await Promise.all([
     sb
       .from("komplekti_read")
       .select("*")
       .eq("komplekt_id", input.komplektId)
       .order("järjekord", { ascending: true }),
+    sb.from("komplektid").select("*").eq("id", input.komplektId).maybeSingle(),
     sb
       .from("pakkumised")
       .select("id, kate_koefitsient")
@@ -1050,6 +1055,8 @@ export async function lisaKomplektPakkumisse(input: {
       .maybeSingle(),
   ]);
   if (!pakk) return { ok: false, error: "Pakkumist ei leitud" };
+  if (!komplekt) return { ok: false, error: "Komplekti ei leitud" };
+  const k = komplekt as { id: string; nimi: string; ühik: string; kirjeldus: string | null };
   const rows = (kompRead ?? []) as Array<{
     id: string;
     toode_id: string | null;
@@ -1079,7 +1086,49 @@ export async function lisaKomplektPakkumisse(input: {
   const pakkKate = (pakk as { kate_koefitsient: number }).kate_koefitsient ?? 1;
   const alamsektsioon = input.alamsektsioon?.trim() || null;
 
-  // 3) Loo positsioonid (snapshot iga rea kohta)
+  // 3a) Režiim 'kokku_rida' — agregeerin kõik read üheks positsiooniks
+  if (režiim === "kokku_rida") {
+    // Materjal per 1 komplekt-ühik = SUM(rida.kogus × rida.ostuhind_snapshot)
+    // Töö per 1 komplekt-ühik = SUM(rida.kogus × rida.paigaldusaeg_h_ühik_snapshot)
+    let materjalPerKompl = 0;
+    let aegPerKompl = 0;
+    for (const r of rows) {
+      const kg = r.kogus ?? 1;
+      if (r.ostuhind_snapshot !== null) materjalPerKompl += kg * r.ostuhind_snapshot;
+      if (r.paigaldusaeg_h_ühik_snapshot !== null) aegPerKompl += kg * r.paigaldusaeg_h_ühik_snapshot;
+    }
+
+    const koondPositsioon = {
+      pakkumine_id: input.pakkumineId,
+      rea_nr: startReaNr,
+      sektsioon: input.sektsioon.trim(),
+      alamsektsioon,
+      nimetus: k.nimi,
+      tähis: null,
+      kogus: kordaja,
+      ühik: k.ühik ?? "kompl",
+      toode_id: null,
+      toote_match_confidence: null,
+      toote_match_põhjendus: `komplekt agregeeritud (${rows.length} rida)`,
+      toode_snapshot_tarnija: null,
+      toode_snapshot_kood: null,
+      toode_snapshot_nimetus: k.nimi,
+      toode_snapshot_brand: null,
+      ostuhind_snapshot: materjalPerKompl,
+      paigaldusaeg_snapshot: aegPerKompl > 0 ? aegPerKompl : null,
+      kate_snapshot: pakkKate,
+      kirjeldus: k.kirjeldus,
+      manuaalselt_muudetud: false,
+      "märkused": `Agregeeritud komplektist "${k.nimi}" (${rows.length} rida)`,
+    };
+
+    const { error: insErr } = await sb.from("positsioonid").insert(koondPositsioon);
+    if (insErr) return { ok: false, error: insErr.message };
+    revalidatePath(`/pakkumised/${input.pakkumineId}`);
+    return { ok: true, lisatudRidu: 1 };
+  }
+
+  // 3b) Režiim 'eraldi_read' (default) — iga komplekti rida eraldi positsioonina
   const positsioonid = rows.map((r, idx) => ({
     pakkumine_id: input.pakkumineId,
     rea_nr: startReaNr + idx,
