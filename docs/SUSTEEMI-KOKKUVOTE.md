@@ -59,12 +59,18 @@
 - `id`, `pakkumine_id uuid REFERENCES pakkumised ON DELETE CASCADE`
 - `faili_path text`, `faili_nimi text`, `parsitud_ajal timestamptz`, `märkused text`
 
-### `hinnakirjad` (tarnija hinnakirjad + manual entries)
+### `hinnakirjad` (tarnija hinnakirjad + manual entries + projekti-pakkumised)
 - `id uuid PK`, `tarnija text` (tarnija nimi — saab vaba)
 - `faili_path text NULL` — Storage tee (NULL kui `faili_tüüp='manual'`)
 - `faili_nimi text`, `faili_tüüp text` — `pdf | xlsx | csv | manual`
 - `laetud_kuupäev date`, `staatus text` — laetud | parsitud | viga | kinnitatud
 - `viga_tekst text`, `artiklite_arv int`, `märkused text`
+- `kasutusala text NOT NULL DEFAULT 'kataloog_uuendus'` *(0020)* — `kataloog_uuendus | projekti_pakkumine`
+- `pakkumine_id uuid REFERENCES pakkumised ON DELETE CASCADE` *(0020)* — NULL kataloog_uuendus puhul
+- `kinnitatud_ajal timestamptz` *(0020)* — Faas 2 diff-vaate kinnitamine
+- `kinnitanud text` *(0020)*
+- `aktiivne boolean NOT NULL DEFAULT true` *(0020)* — uusim sama-tarnija kataloog_uuendus on aktiivne
+- **CHECK** `hinnakirjad_pakkumine_kohustuslik`: `(kataloog_uuendus + pakkumine_id IS NULL) OR (projekti_pakkumine + pakkumine_id NOT NULL)`
 
 ### `hinnakirja_read` (tooted/teenused — kogu kataloog elab siin)
 - `id uuid PK`, `hinnakiri_id uuid REFERENCES hinnakirjad ON DELETE CASCADE`
@@ -77,14 +83,17 @@
 - `magnus_märkused text` *(0004)* — sisemine
 - `magnus_alt_nimed text` *(0004)* — sünonüümid (semicolon-eraldatud)
 - `tootegrupp_id uuid REFERENCES tootegrupid ON DELETE SET NULL` *(0006)*
-- `kirjeldus text` *(0016)* — kliendile nähtav pikk tehniline kirjeldus
-- ⚠️ MIGRATION 0016 EI OLE JOOKSUTATUD — kirjeldus veerg puudub praegu DB-s
+- `kirjeldus text` *(0016)* — kliendile nähtav pikk tehniline kirjeldus ✅
+- **UNIQUE INDEX** *(0019)* `(hinnakiri_id, tarnija_kood) WHERE tarnija_kood IS NOT NULL AND <> ''` — ühe hinnakirja sees üks tarnija_kood = üks rida
 
 ### `tootegrupid` *(0006)* (teenused — Magnuse semantikas "Teenused")
 - `id`, `nimi text UNIQUE`, `kirjeldus text`
 - `paigaldusaeg_h_ühik numeric` — grupi-tasandi default kui tootel pole
 - `kate_koefitsient_override numeric` — kui täidetud, override pakkumise kate
 - `tüüp text` *(0007)* — toode | teenus
+- `template_kirjeldus text` *(0021)* — lühem kataloogi-vaates; placeholders `{kw} {mudel} {maht}`
+- `pakkumise_kirjeldus text` *(0021)* — pikem pakkumise PDF jaoks
+- `garantii_aastad integer` *(0021)* — CHECK 0-50; Hybrox 2a vs Alpha Innotec 5a eraldumine
 - `märkused text`
 
 ### `komplektid` *(0011)* (paigalduskomplektid, Eesti Puurkaev jne)
@@ -120,9 +129,12 @@
 0013_pakkumise_mall.sql          — pakkumised.mall enum
 0014_pakkumise_mall_andmed.sql   — pakkumised.mall_andmed JSONB
 0015_pakkumise_tellija.sql       — peatöövõtja → tellija + telefon
-0016_hinnakirja_kirjeldus.sql    — kirjeldus veerg ⚠️ JOOKSMATA
+0016_hinnakirja_kirjeldus.sql    — kirjeldus veerg ✅
 0017_positsiooni_kirjeldus.sql   — positsiooni kirjeldus
 0018_komplekti_vaike_eriosa.sql  — komplektidele vaike-eriosa
+0019_hinnakirja_read_unique.sql  — unique (hinnakiri_id, tarnija_kood) partial ✅ FAAS 0
+0020_hinnakirjad_kasutusala.sql  — kasutusala + pakkumine_id + lifecycle ✅ FAAS 0
+0021_tootegrupid_kirjeldused.sql — template_kirjeldus + pakkumise_kirjeldus + garantii ✅ FAAS 0
 ```
 
 ## 4. App-i marsruudid (Next.js App Router)
@@ -273,12 +285,18 @@ NB: Storage võtmed peavad olema ASCII — Estonia diakriitikuid transliteeritak
 - Kiirlisa positsioon autocomplete-otsinguga
 
 ### Praegused probleemid / parandust vajab
-- **Migration 0016 puudub DB-st** — `hinnakirja_read.kirjeldus` veerg ei eksisteeri Magnuse Supabase'is
-  - Lahendus: jooksuta `alter table hinnakirja_read add column if not exists kirjeldus text; notify pgrst, 'reload schema';`
+- ~~Migration 0016 puudub DB-st~~ ✅ JOOKSUTATUD (kirjeldus veerg olemas)
+- ✅ Faas 0 lõpetatud (0019 + 0020 + 0021 rakendatud Supabase'is + git'is)
 - AI parsimine on aeglane (~3-4 min) ja kallis (~$0.10-0.15/try)
 - Suurte XLSX-failide puhul (89+ rida × 17 veerge) tokenite kasutus ~20k input + 20k output
 - Mõned legacy actions (looUusVkArtikkel, muudaMatch, kinnitaUksRida) on kasutamata
 - `artiklid` ja `tarnija_artiklid` tabelid on legacy, mitte täielikult kustutatud
+
+### Järgmised faasid (vt prompt)
+- **Faas 1** — tootegrupid template_kirjeldus UI + renderKirjeldus() helper + grupi eelvaade + seeditud Alpha Innoteci kirjeldused
+- **Faas 2** — Hinnakirja uuendamine diff-vaatega (kasutusala=kataloog_uuendus voo täiendus)
+- **Faas 3** — Projekti-pakkumiste import (`/pakkumised/[id]/hinnapakkumised/...` voo lisamine; kasutusala=projekti_pakkumine)
+- **Faas 4** — Tooterühma + tootja kirjelduste mass-import/export
 
 ### Tasks/ideid edaspidi
 - Pakkumise PDF-export (praegu vaid HTML print)
@@ -303,13 +321,14 @@ NB: Storage võtmed peavad olema ASCII — Estonia diakriitikuid transliteeritak
 
 ---
 
-**Andmebaasi praegune seis (kontrollitud 2026-05-27):**
+**Andmebaasi praegune seis (kontrollitud + verifeeritud 2026-05-27, pärast Faas 0):**
 
 | Tabel.veerg | Olemas? |
 |-------------|---------|
-| pakkumised.mall | ✅ |
-| pakkumised.mall_andmed | ✅ |
-| pakkumised.tellija_nimi / email / telefon | ✅ |
-| **hinnakirja_read.kirjeldus** | ❌ **PUUDU — migration 0016 vaja jooksutada** |
+| pakkumised.mall, mall_andmed, tellija_* | ✅ |
+| hinnakirja_read.kirjeldus | ✅ |
 | positsioonid.kirjeldus | ✅ |
 | komplektid.vaike_sektsioon / vaike_alamsektsioon | ✅ |
+| **hinnakirja_read unique (hinnakiri_id, tarnija_kood)** | ✅ partial index *(0019)* |
+| **hinnakirjad.kasutusala, pakkumine_id, kinnitatud_ajal, kinnitanud, aktiivne** | ✅ *(0020)* |
+| **tootegrupid.template_kirjeldus, pakkumise_kirjeldus, garantii_aastad** | ✅ *(0021)* |
