@@ -78,6 +78,28 @@ export type KataloogiImportTulemus = {
   kontrollitud: number;
 };
 
+// Eelvaate rida — tagastatakse parsiImpordiFail-ist kliendile.
+export type ImpordiRida = {
+  _tempId: string;
+  rea_nr: number;
+  // Kasutaja-määratud andmed
+  tarnija_nimetus: string;
+  tarnija: string | null;
+  id_olemas: string | null; // kui CSV sisaldas id veergu ja id viitab olemasolevale reale
+  tarnija_kood: string | null;
+  tarnija_brand: string | null;
+  tähis: string | null;
+  ühik: string | null;
+  ostuhind_neto: number | null;
+  paigaldusaeg_h_ühik: number | null;
+  kirjeldus: string | null;
+  magnus_alt_nimed: string | null;
+  magnus_märkused: string | null;
+  // Olemasoleva-kontroll
+  duplikaat: boolean;       // sama (tarnija + tarnija_kood) juba kataloogis
+  duplikaadi_id: string | null;
+};
+
 function parseCsvLines(text: string): unknown[][] {
   const sep = text.split("\n")[0]?.includes(";") ? ";" : ",";
   const rows: unknown[][] = [];
@@ -161,6 +183,300 @@ async function getVoiLoo_Hinnakiri(
     .select("id")
     .single();
   return ((created as { id: string } | null)?.id) ?? null;
+}
+
+// ----------------------------------------------------------------------------
+// FAAS 2 — Valikuline import (kahepoolne voog)
+//
+// 1) parsiImpordiFail(formData) → parsetud read kliendile (preview, EI salvesta)
+// 2) impordiValitudRead(read)    → ainult valitud read insert/update'tud
+// ----------------------------------------------------------------------------
+
+async function parsiFailRidadeks(
+  file: File,
+): Promise<{ ok: true; rows2d: unknown[][] } | { ok: false; error: string }> {
+  const name = file.name.toLowerCase();
+  const isCsv = name.endsWith(".csv");
+  const isXlsx = name.endsWith(".xlsx") || name.endsWith(".xls");
+  if (!isCsv && !isXlsx) return { ok: false, error: "Toetatud failitüübid: .csv, .xlsx, .xls" };
+
+  let rows2d: unknown[][] = [];
+  if (isCsv) {
+    let text = Buffer.from(await file.arrayBuffer()).toString("utf-8");
+    if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
+    rows2d = parseCsvLines(text);
+  } else {
+    const XLSX = await import("xlsx");
+    const wb = XLSX.read(Buffer.from(await file.arrayBuffer()), { type: "buffer" });
+    const sheetName = wb.SheetNames[0];
+    if (!sheetName) return { ok: false, error: "Excelis pole ühtegi lehte" };
+    rows2d = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], {
+      header: 1,
+      defval: null,
+    }) as unknown[][];
+  }
+  if (rows2d.length < 2) {
+    return { ok: false, error: "Failis peab olema vähemalt päise rida + üks andmerida" };
+  }
+  return { ok: true, rows2d };
+}
+
+function tuvastaVeerud(rows2d: unknown[][]): {
+  ok: true;
+  idx: Record<string, number>;
+  headerRaw: string[];
+} | { ok: false; error: string } {
+  function normHead(s: string): string {
+    return s.toLowerCase().replace(/[_\-\s]+/g, " ").trim();
+  }
+  const headerRaw = rows2d[0].map((c) => String(c ?? "").trim());
+  const normalisedHeader = headerRaw.map(normHead);
+  function findColV2(names: string[]): number {
+    const norm = names.map(normHead);
+    for (let i = 0; i < normalisedHeader.length; i++) {
+      if (norm.includes(normalisedHeader[i])) return i;
+      for (const n of norm) {
+        if (n.length >= 4 && normalisedHeader[i].includes(n)) return i;
+      }
+    }
+    return -1;
+  }
+  const idx = {
+    id: findColV2(["id", "rea id"]),
+    tarnija: findColV2(["tarnija"]),
+    kood: findColV2([
+      "tarnija kood", "kood", "code", "art kood", "artikli kood",
+      "artikkel", "sku", "tootekood",
+    ]),
+    nimetus: findColV2([
+      "tarnija nimetus", "nimetus", "toote nimetus", "tootenimetus",
+      "toode", "mudel", "model", "name", "product",
+    ]),
+    brand: findColV2(["tarnija brand", "brand", "tootja", "mark", "kaubamärk"]),
+    tähis: findColV2(["tähis", "tahis", "marking"]),
+    ühik: findColV2(["ühik", "uhik", "unit"]),
+    ostuhind: findColV2([
+      "ostuhind", "ostuhind neto", "ostuhind eur", "hind",
+      "price", "cost", "cost price",
+    ]),
+    aeg: findColV2(["paigaldusaeg h", "paigaldusaeg", "aeg h", "tunnid"]),
+    kirjeldus: findColV2([
+      "kirjeldus", "tootekirjeldus", "toote kirjeldus", "spec",
+      "specification", "spetsifikatsioon", "description",
+    ]),
+    altNimed: findColV2(["alt nimed", "sünonüümid", "synonyms"]),
+    märkused: findColV2([
+      "sisemised märkused", "märkused", "markused", "magnus märkused", "notes",
+    ]),
+  };
+  if (idx.nimetus < 0) {
+    return {
+      ok: false,
+      error: `Veerg 'tarnija_nimetus' (sünonüümid: nimetus, toode, mudel) puudub. Failis on: ${headerRaw
+        .filter((h) => h)
+        .map((h) => `"${h}"`)
+        .join(", ")}`,
+    };
+  }
+  return { ok: true, idx, headerRaw };
+}
+
+export async function parsiImpordiFail(
+  formData: FormData,
+): Promise<
+  | { ok: true; read: ImpordiRida[]; duplikaate: number; pärit_nimi: string }
+  | { ok: false; error: string }
+> {
+  const file = formData.get("fail");
+  if (!(file instanceof File) || file.size === 0) return { ok: false, error: "Fail puudub" };
+  if (file.size > 10 * 1024 * 1024) return { ok: false, error: "Fail liiga suur (max 10 MB)" };
+
+  const parsed = await parsiFailRidadeks(file);
+  if (!parsed.ok) return parsed;
+
+  const cols = tuvastaVeerud(parsed.rows2d);
+  if (!cols.ok) return cols;
+  const { idx } = cols;
+  const rows2d = parsed.rows2d;
+
+  // Kogu (tarnija, kood) paarid duplikaadi-kontrolliks
+  const koodiPaarid: Array<{ tarnija: string; kood: string; ri: number }> = [];
+
+  const read: ImpordiRida[] = [];
+  for (let ri = 1; ri < rows2d.length; ri++) {
+    const row = rows2d[ri];
+    if (!row || row.length === 0) continue;
+    const nimetus = String(row[idx.nimetus] ?? "").trim();
+    if (!nimetus) continue;
+
+    const tarnija = idx.tarnija >= 0 ? String(row[idx.tarnija] ?? "").trim() || null : null;
+    const kood = idx.kood >= 0 ? String(row[idx.kood] ?? "").trim() || null : null;
+    const id = idx.id >= 0 ? String(row[idx.id] ?? "").trim() || null : null;
+
+    if (tarnija && kood) {
+      koodiPaarid.push({ tarnija, kood, ri: read.length });
+    }
+
+    read.push({
+      _tempId: `rida-${ri}`,
+      rea_nr: ri,
+      tarnija_nimetus: nimetus,
+      tarnija,
+      id_olemas: id,
+      tarnija_kood: kood,
+      tarnija_brand: idx.brand >= 0 ? String(row[idx.brand] ?? "").trim() || null : null,
+      tähis: idx.tähis >= 0 ? String(row[idx.tähis] ?? "").trim() || null : null,
+      ühik: idx.ühik >= 0 ? String(row[idx.ühik] ?? "").trim() || null : null,
+      ostuhind_neto: idx.ostuhind >= 0 ? parseNullableNum(row[idx.ostuhind]) : null,
+      paigaldusaeg_h_ühik: idx.aeg >= 0 ? parseNullableNum(row[idx.aeg]) : null,
+      kirjeldus: idx.kirjeldus >= 0 ? String(row[idx.kirjeldus] ?? "").trim() || null : null,
+      magnus_alt_nimed: idx.altNimed >= 0 ? String(row[idx.altNimed] ?? "").trim() || null : null,
+      magnus_märkused: idx.märkused >= 0 ? String(row[idx.märkused] ?? "").trim() || null : null,
+      duplikaat: false,
+      duplikaadi_id: null,
+    });
+  }
+
+  // Kontrolli olemasolevate koodide vastu (batch-query per tarnija)
+  const sb = getServerSupabase();
+  const unikaalseidTarnijaid = Array.from(new Set(koodiPaarid.map((p) => p.tarnija)));
+  let duplikaate = 0;
+  for (const tarnija of unikaalseidTarnijaid) {
+    const koodid = koodiPaarid.filter((p) => p.tarnija === tarnija).map((p) => p.kood);
+    if (koodid.length === 0) continue;
+
+    // Lae sama tarnija olemasolevad read
+    const { data: hkRows } = await sb
+      .from("hinnakirjad")
+      .select("id")
+      .eq("tarnija", tarnija);
+    const hkIds = (hkRows ?? []).map((h: { id: string }) => h.id);
+    if (hkIds.length === 0) continue;
+
+    const { data: olemasolevad } = await sb
+      .from("hinnakirja_read")
+      .select("id, tarnija_kood")
+      .in("hinnakiri_id", hkIds)
+      .in("tarnija_kood", koodid);
+
+    const olemasolevateKaart = new Map<string, string>();
+    for (const r of (olemasolevad ?? []) as Array<{ id: string; tarnija_kood: string }>) {
+      if (r.tarnija_kood) olemasolevateKaart.set(r.tarnija_kood.toLowerCase(), r.id);
+    }
+
+    for (const paar of koodiPaarid) {
+      if (paar.tarnija !== tarnija) continue;
+      const olemasolevaId = olemasolevateKaart.get(paar.kood.toLowerCase());
+      if (olemasolevaId) {
+        read[paar.ri].duplikaat = true;
+        read[paar.ri].duplikaadi_id = olemasolevaId;
+        duplikaate++;
+      }
+    }
+  }
+
+  return { ok: true, read, duplikaate, pärit_nimi: file.name };
+}
+
+export async function impordiValitudRead(
+  read: ImpordiRida[],
+): Promise<KataloogiImportTulemus | { error: string }> {
+  if (!read || read.length === 0) {
+    return { error: "Pole valitud ühtegi rida" };
+  }
+  const sb = getServerSupabase();
+  const hkCache = new Map<string, string>();
+
+  let uuendatud = 0;
+  let loodud = 0;
+  let vigade_arv = 0;
+  const vea_näited: string[] = [];
+
+  for (const r of read) {
+    const upd: Record<string, unknown> = {
+      tarnija_nimetus: r.tarnija_nimetus,
+    };
+    if (r.tarnija_kood !== null) upd.tarnija_kood = r.tarnija_kood;
+    if (r.tarnija_brand !== null) upd.tarnija_brand = r.tarnija_brand;
+    if (r.tähis !== null) upd["tähis"] = r.tähis;
+    if (r.ühik !== null) upd["ühik"] = r.ühik;
+    if (r.ostuhind_neto !== null) upd.ostuhind_neto = r.ostuhind_neto;
+    if (r.paigaldusaeg_h_ühik !== null) upd.paigaldusaeg_h_ühik = r.paigaldusaeg_h_ühik;
+    if (r.kirjeldus !== null) upd.kirjeldus = r.kirjeldus;
+    if (r.magnus_alt_nimed !== null) upd.magnus_alt_nimed = r.magnus_alt_nimed;
+    if (r.magnus_märkused !== null) upd.magnus_märkused = r.magnus_märkused;
+
+    try {
+      // Eelistus: id_olemas (CSV id veerg) > duplikaadi_id (sama kood) > insert
+      if (r.id_olemas) {
+        const { error, count } = await sb
+          .from("hinnakirja_read")
+          .update(upd, { count: "exact" })
+          .eq("id", r.id_olemas);
+        if (error) {
+          vigade_arv++;
+          if (vea_näited.length < 10) vea_näited.push(`Rida ${r.rea_nr}: ${error.message}`);
+        } else if ((count ?? 0) > 0) {
+          uuendatud++;
+        } else {
+          vigade_arv++;
+          if (vea_näited.length < 10)
+            vea_näited.push(`Rida ${r.rea_nr}: id "${r.id_olemas.slice(0, 8)}…" ei leitud`);
+        }
+        continue;
+      }
+
+      if (r.duplikaat && r.duplikaadi_id) {
+        const { error } = await sb
+          .from("hinnakirja_read")
+          .update(upd)
+          .eq("id", r.duplikaadi_id);
+        if (error) {
+          vigade_arv++;
+          if (vea_näited.length < 10) vea_näited.push(`Rida ${r.rea_nr}: ${error.message}`);
+        } else {
+          uuendatud++;
+        }
+        continue;
+      }
+
+      // INSERT — uus rida, leia/lisa hinnakiri
+      const tarnijaKey = r.tarnija || "VK Manuaalsed";
+      let hkId = hkCache.get(tarnijaKey);
+      if (!hkId) {
+        const got = await getVoiLoo_Hinnakiri(sb, tarnijaKey);
+        if (!got) {
+          vigade_arv++;
+          if (vea_näited.length < 10)
+            vea_näited.push(`Rida ${r.rea_nr}: ei suutnud luua hinnakirja "${tarnijaKey}"`);
+          continue;
+        }
+        hkId = got;
+        hkCache.set(tarnijaKey, hkId);
+      }
+
+      const { error } = await sb.from("hinnakirja_read").insert({
+        hinnakiri_id: hkId,
+        ...upd,
+        staatus: "matchimata",
+      });
+      if (error) {
+        vigade_arv++;
+        if (vea_näited.length < 10) vea_näited.push(`Rida ${r.rea_nr}: ${error.message}`);
+      } else {
+        loodud++;
+      }
+    } catch (e) {
+      vigade_arv++;
+      if (vea_näited.length < 10)
+        vea_näited.push(`Rida ${r.rea_nr}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  revalidatePath("/kataloog");
+  revalidatePath("/hinnakirjad");
+
+  return { uuendatud, loodud, vigade_arv, vea_näited, kontrollitud: read.length };
 }
 
 export async function kataloogiImport(
@@ -325,7 +641,7 @@ export async function kataloogiImport(
           if (vea_näited.length < 10) vea_näited.push(`Rida ${ri + 1}: id "${id.slice(0, 8)}…" ei leitud`);
         }
       } else {
-        // Insert: vajab hinnakirja_id
+        // Insert või update — vajab hinnakirja_id
         const tarnijaKey = tarnija || "VK Manuaalsed";
         let hkId = hkCache.get(tarnijaKey);
         if (!hkId) {
@@ -339,6 +655,40 @@ export async function kataloogiImport(
           hkId = got;
           hkCache.set(tarnijaKey, hkId);
         }
+
+        // Faas 1: kui sama (hinnakirja_id, tarnija_kood) juba eksisteerib,
+        // UPDATE olemasolev rida (mitte viska duplicate-key viga).
+        const tarnijaKood =
+          upd.tarnija_kood !== undefined && upd.tarnija_kood !== null
+            ? String(upd.tarnija_kood)
+            : null;
+        let olemasolevaId: string | null = null;
+        if (tarnijaKood) {
+          const { data: olemasolev } = await sb
+            .from("hinnakirja_read")
+            .select("id")
+            .eq("hinnakiri_id", hkId)
+            .eq("tarnija_kood", tarnijaKood)
+            .maybeSingle();
+          olemasolevaId = (olemasolev as { id: string } | null)?.id ?? null;
+        }
+
+        if (olemasolevaId) {
+          // UPDATE — sama kood juba olemas, uuendame väärtused
+          const { error } = await sb
+            .from("hinnakirja_read")
+            .update(upd)
+            .eq("id", olemasolevaId);
+          if (error) {
+            vigade_arv++;
+            if (vea_näited.length < 10) vea_näited.push(`Rida ${ri + 1}: ${error.message}`);
+          } else {
+            uuendatud++;
+          }
+          continue;
+        }
+
+        // INSERT — uus rida
         const { error } = await sb.from("hinnakirja_read").insert({
           hinnakiri_id: hkId,
           tarnija_nimetus: nimetus,
