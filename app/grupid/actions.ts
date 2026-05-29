@@ -190,7 +190,7 @@ export async function lisaManuaalneToode(
       magnus_märkused: input.märkused?.trim() || null,
       magnus_alt_nimed: input.alt_nimed?.trim() || null,
       tootegrupp_id: input.grupId,
-      staatus: "matched",
+      staatus: "matchitud",
     })
     .select("id")
     .single();
