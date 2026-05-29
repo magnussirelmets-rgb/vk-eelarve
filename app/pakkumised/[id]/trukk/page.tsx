@@ -9,6 +9,7 @@ import { ArrowLeft } from "lucide-react";
 import { PrintButton } from "./print-button";
 import { EriosaTabel, type Eriosa } from "./eriosa-tabel";
 import { BRAND } from "@/lib/brand";
+import { renderPakkumiseKirjeldus } from "@/lib/render-kirjeldus";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -84,6 +85,47 @@ export default async function TrükkPage({ params }: { params: { id: string } })
   const pakkumine = pkData as unknown as Pakkumine;
   const positsioonid = (posData ?? []) as unknown as Positsioon[];
 
+  // Kogu kõikide positsioonide toode_id'd, lae hinnakirja_read + tootegrupid (template + mudel_andmed)
+  // renderPakkumiseKirjeldus ahela jaoks.
+  type TooteKirjeldusInfo = {
+    catalogKirjeldus: string | null;
+    mudel_andmed: Record<string, string | number | null> | null;
+    template_kirjeldus: string | null;
+    pakkumise_kirjeldus: string | null;
+    grupi_kirjeldus: string | null;
+  };
+  const tooteKirjeldused = new Map<string, TooteKirjeldusInfo>();
+  const toodeIds = Array.from(
+    new Set(positsioonid.map((p) => p.toode_id).filter((id): id is string => !!id)),
+  );
+  if (toodeIds.length > 0) {
+    const { data: hkRead } = await sb
+      .from("hinnakirja_read")
+      .select("id, kirjeldus, mudel_andmed, tootegrupid(template_kirjeldus, pakkumise_kirjeldus, kirjeldus)")
+      .in("id", toodeIds);
+    type GrupiVali = {
+      template_kirjeldus: string | null;
+      pakkumise_kirjeldus: string | null;
+      kirjeldus: string | null;
+    };
+    for (const r of (hkRead ?? []) as unknown as Array<{
+      id: string;
+      kirjeldus: string | null;
+      mudel_andmed: Record<string, string | number | null> | null;
+      // Supabase nested select tagastab JOIN'i alati massiivina, isegi N-to-1 puhul
+      tootegrupid: GrupiVali | GrupiVali[] | null;
+    }>) {
+      const grupp = Array.isArray(r.tootegrupid) ? (r.tootegrupid[0] ?? null) : r.tootegrupid;
+      tooteKirjeldused.set(r.id, {
+        catalogKirjeldus: r.kirjeldus,
+        mudel_andmed: r.mudel_andmed,
+        template_kirjeldus: grupp?.template_kirjeldus ?? null,
+        pakkumise_kirjeldus: grupp?.pakkumise_kirjeldus ?? null,
+        grupi_kirjeldus: grupp?.kirjeldus ?? null,
+      });
+    }
+  }
+
   const sektMap = new Map<string, SektsiooniSum>();
   // Eraldi positsioonide loend eriosa kaupa (kasutatakse "Näita ridu" tooglile)
   const sektRead = new Map<string, Positsioon[]>();
@@ -125,10 +167,18 @@ export default async function TrükkPage({ params }: { params: { id: string } })
       .sort((a, b) => (a.rea_nr ?? 0) - (b.rea_nr ?? 0))
       .map((p) => {
         const r = arvutaRida(p, pakkumine.kate_koefitsient, pakkumine.tunnitasu);
+        const info = p.toode_id ? tooteKirjeldused.get(p.toode_id) : undefined;
+        const renderedKirjeldus = renderPakkumiseKirjeldus({
+          rowKirjeldus: p.kirjeldus ?? info?.catalogKirjeldus ?? null,
+          pakkumiseKirjeldus: info?.pakkumise_kirjeldus,
+          templateKirjeldus: info?.template_kirjeldus,
+          mudelAndmed: info?.mudel_andmed,
+          grupiKirjeldus: info?.grupi_kirjeldus,
+        });
         return {
           nimetus: p.nimetus,
           tähis: p.tähis,
-          kirjeldus: p.kirjeldus,
+          kirjeldus: renderedKirjeldus,
           kogus: p.kogus,
           ühik: p.ühik,
           materjal: r.materjal,
