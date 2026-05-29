@@ -13,20 +13,36 @@ function num(raw: FormDataEntryValue | null): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+function intInRange(raw: FormDataEntryValue | null, min: number, max: number): number | null {
+  if (raw === null) return null;
+  const s = String(raw).trim();
+  if (s === "") return null;
+  const n = Number(s);
+  if (!Number.isFinite(n) || !Number.isInteger(n)) return null;
+  if (n < min || n > max) return null;
+  return n;
+}
+
 export async function looGrupp(formData: FormData): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   const sb = getServerSupabase();
   const nimi = String(formData.get("nimi") ?? "").trim();
-  if (!nimi) return { ok: false, error: "Teenuse nimi on kohustuslik" };
+  if (!nimi) return { ok: false, error: "Grupi nimi on kohustuslik" };
+
+  const tüüpRaw = String(formData.get("tüüp") ?? "teenus");
+  const tüüp: "toode" | "teenus" = tüüpRaw === "toode" ? "toode" : "teenus";
 
   const { data, error } = await sb
     .from("tootegrupid")
     .insert({
       nimi,
-      tüüp: "teenus",
+      tüüp,
       kirjeldus: String(formData.get("kirjeldus") ?? "").trim() || null,
       paigaldusaeg_h_ühik: num(formData.get("paigaldusaeg_h_ühik")),
       kate_koefitsient_override: num(formData.get("kate_koefitsient_override")),
       märkused: String(formData.get("märkused") ?? "").trim() || null,
+      template_kirjeldus: String(formData.get("template_kirjeldus") ?? "").trim() || null,
+      pakkumise_kirjeldus: String(formData.get("pakkumise_kirjeldus") ?? "").trim() || null,
+      garantii_aastad: intInRange(formData.get("garantii_aastad"), 0, 50),
     })
     .select("id")
     .single();
@@ -46,12 +62,18 @@ export async function muudaGrupp(
     paigaldusaeg_h_ühik: number | null;
     kate_koefitsient_override: number | null;
     märkused: string | null;
+    template_kirjeldus: string | null;
+    pakkumise_kirjeldus: string | null;
+    garantii_aastad: number | null;
   },
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   if (!id) return { ok: false, error: "Grupi ID puudub" };
   if (!data.nimi.trim()) return { ok: false, error: "Nimi on kohustuslik" };
   if (data.tüüp !== "toode" && data.tüüp !== "teenus") {
     return { ok: false, error: "Vigane tüüp" };
+  }
+  if (data.garantii_aastad !== null && (data.garantii_aastad < 0 || data.garantii_aastad > 50)) {
+    return { ok: false, error: "Garantii peab olema 0-50 aastat" };
   }
   const sb = getServerSupabase();
   const { error } = await sb.from("tootegrupid").update(data).eq("id", id);
@@ -168,7 +190,7 @@ export async function lisaManuaalneToode(
       magnus_märkused: input.märkused?.trim() || null,
       magnus_alt_nimed: input.alt_nimed?.trim() || null,
       tootegrupp_id: input.grupId,
-      staatus: "matched",
+      staatus: "matchitud",
     })
     .select("id")
     .single();
