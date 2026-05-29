@@ -1302,6 +1302,10 @@ export async function looPakkumineSamaleObjektile(
     .from("pakkumised")
     .insert({
       vkp_nr,
+      // Faas A: kopeerime FK-d. Snapshot string-väljad jäävad samuti et
+      // ajalooline vaade säiliks ka kui klient/objekt hiljem kustutatakse.
+      klient_id: a.klient_id,
+      objekt_id: a.objekt_id,
       objekt: a.objekt,
       projekti_nr: a.projekti_nr,
       tellija_nimi: a.tellija_nimi,
@@ -1316,6 +1320,8 @@ export async function looPakkumineSamaleObjektile(
   if (error) return { ok: false, error: error.message };
 
   revalidatePath("/pakkumised");
+  if (a.objekt_id) revalidatePath(`/objektid/${a.objekt_id}`);
+  if (a.klient_id) revalidatePath(`/kliendid/${a.klient_id}`);
   return { ok: true, id: created.id, vkp_nr: created.vkp_nr };
 }
 
