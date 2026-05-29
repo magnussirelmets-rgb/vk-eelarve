@@ -19,13 +19,20 @@ function StaatuseBadge({ s }: { s: Pakkumine["staatus"] }) {
 
 export default async function PakkumisedPage() {
   const sb = getServerSupabase();
-  const { data, error } = await sb
-    .from("pakkumised")
-    .select("*")
-    .order("loodud", { ascending: false })
-    .limit(100);
-  if (error) throw new Error(`Pakkumiste laadimine ebaõnnestus: ${error.message}`);
-  const pakkumised = (data ?? []) as unknown as Pakkumine[];
+  // Faas A: lae kliendid + objektid lookup-mappide jaoks (et linkida)
+  const [{ data: pData, error: pErr }, { data: kData }, { data: oData }] = await Promise.all([
+    sb.from("pakkumised").select("*").order("loodud", { ascending: false }).limit(100),
+    sb.from("kliendid").select("id, nimi"),
+    sb.from("objektid").select("id, nimi"),
+  ]);
+  if (pErr) throw new Error(`Pakkumiste laadimine ebaõnnestus: ${pErr.message}`);
+  const pakkumised = (pData ?? []) as unknown as Pakkumine[];
+  const klientMap = new Map<string, string>(
+    ((kData ?? []) as Array<{ id: string; nimi: string }>).map((k) => [k.id, k.nimi]),
+  );
+  const objektMap = new Map<string, string>(
+    ((oData ?? []) as Array<{ id: string; nimi: string }>).map((o) => [o.id, o.nimi]),
+  );
 
   return (
     <div className="space-y-6">
@@ -71,9 +78,29 @@ export default async function PakkumisedPage() {
                       {p.vkp_nr}
                     </Link>
                   </TableCell>
-                  <TableCell>{p.objekt ?? "—"}</TableCell>
+                  <TableCell>
+                    {p.objekt_id && objektMap.has(p.objekt_id) ? (
+                      <Link
+                        href={`/objektid/${p.objekt_id}`}
+                        className="hover:text-vk-blue hover:underline"
+                      >
+                        {objektMap.get(p.objekt_id)}
+                      </Link>
+                    ) : (
+                      <span>{p.objekt ?? "—"}</span>
+                    )}
+                  </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    {p.tellija_nimi ?? "—"}
+                    {p.klient_id && klientMap.has(p.klient_id) ? (
+                      <Link
+                        href={`/kliendid/${p.klient_id}`}
+                        className="hover:text-vk-blue hover:underline"
+                      >
+                        {klientMap.get(p.klient_id)}
+                      </Link>
+                    ) : (
+                      <span>{p.tellija_nimi ?? "—"}</span>
+                    )}
                   </TableCell>
                   <TableCell className="font-mono text-xs">{formatDate(p.loodud)}</TableCell>
                   <TableCell>

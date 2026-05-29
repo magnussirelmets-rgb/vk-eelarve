@@ -51,12 +51,46 @@ export type CreatePakkumineResult =
 export async function looPakkumine(formData: FormData): Promise<CreatePakkumineResult> {
   const sb = getServerSupabase();
 
-  const objekt = String(formData.get("objekt") ?? "").trim();
-  const projekti_nr = String(formData.get("projekti_nr") ?? "").trim();
-  const tellija_nimi = String(formData.get("tellija_nimi") ?? "").trim();
-  const tellija_email = String(formData.get("tellija_email") ?? "").trim();
-  const tellija_telefon = String(formData.get("tellija_telefon") ?? "").trim();
+  // Faas A: klient_id + objekt_id eelistatud (vorm pakub picker'it).
+  // Ilma nendeta töötab vana muster (manuaalsed tellija_* + objekt stringid).
+  const klient_id_raw = String(formData.get("klient_id") ?? "").trim();
+  const objekt_id_raw = String(formData.get("objekt_id") ?? "").trim();
+  const klient_id = klient_id_raw || null;
+  const objekt_id = objekt_id_raw || null;
+
+  let objekt = String(formData.get("objekt") ?? "").trim();
+  let projekti_nr = String(formData.get("projekti_nr") ?? "").trim();
+  let tellija_nimi = String(formData.get("tellija_nimi") ?? "").trim();
+  let tellija_email = String(formData.get("tellija_email") ?? "").trim();
+  let tellija_telefon = String(formData.get("tellija_telefon") ?? "").trim();
   const märkused = String(formData.get("märkused") ?? "").trim();
+
+  // Kui FK'd on antud, lae klient + objekt snapshot-väärtuste täitmiseks
+  if (klient_id) {
+    const { data: k } = await sb
+      .from("kliendid")
+      .select("nimi, email, telefon")
+      .eq("id", klient_id)
+      .maybeSingle();
+    if (k) {
+      const kk = k as { nimi: string; email: string | null; telefon: string | null };
+      if (!tellija_nimi) tellija_nimi = kk.nimi;
+      if (!tellija_email && kk.email) tellija_email = kk.email;
+      if (!tellija_telefon && kk.telefon) tellija_telefon = kk.telefon;
+    }
+  }
+  if (objekt_id) {
+    const { data: o } = await sb
+      .from("objektid")
+      .select("nimi, projekti_nr")
+      .eq("id", objekt_id)
+      .maybeSingle();
+    if (o) {
+      const oo = o as { nimi: string; projekti_nr: string | null };
+      if (!objekt) objekt = oo.nimi;
+      if (!projekti_nr && oo.projekti_nr) projekti_nr = oo.projekti_nr;
+    }
+  }
 
   const numOrNull = (k: string): number | null => {
     const v = String(formData.get(k) ?? "").trim();
@@ -110,6 +144,8 @@ export async function looPakkumine(formData: FormData): Promise<CreatePakkumineR
     .from("pakkumised")
     .insert({
       vkp_nr,
+      klient_id,
+      objekt_id,
       objekt,
       projekti_nr: projekti_nr || null,
       tellija_nimi: tellija_nimi || null,
@@ -1266,6 +1302,10 @@ export async function looPakkumineSamaleObjektile(
     .from("pakkumised")
     .insert({
       vkp_nr,
+      // Faas A: kopeerime FK-d. Snapshot string-väljad jäävad samuti et
+      // ajalooline vaade säiliks ka kui klient/objekt hiljem kustutatakse.
+      klient_id: a.klient_id,
+      objekt_id: a.objekt_id,
       objekt: a.objekt,
       projekti_nr: a.projekti_nr,
       tellija_nimi: a.tellija_nimi,
@@ -1280,6 +1320,8 @@ export async function looPakkumineSamaleObjektile(
   if (error) return { ok: false, error: error.message };
 
   revalidatePath("/pakkumised");
+  if (a.objekt_id) revalidatePath(`/objektid/${a.objekt_id}`);
+  if (a.klient_id) revalidatePath(`/kliendid/${a.klient_id}`);
   return { ok: true, id: created.id, vkp_nr: created.vkp_nr };
 }
 

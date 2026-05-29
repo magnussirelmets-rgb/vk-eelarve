@@ -16,6 +16,8 @@ import {
   type MallVali,
   type SkaalateguriVäli,
 } from "@/lib/pakkumise-mallid";
+import type { Klient, Objekt } from "@/lib/types";
+import { KlientObjektPicker } from "./klient-objekt-picker";
 
 const SKAALA_LABELS: Record<SkaalateguriVäli, { label: string; placeholder: string; mode?: string }> = {
   püstikute_arv: { label: "Püstikute arv", placeholder: "nt 4" },
@@ -50,7 +52,13 @@ function vaikeväärtused(väljad: MallVali[]): MallValueState {
   return state;
 }
 
-export function UusPakkumineForm() {
+export function UusPakkumineForm({
+  kliendid,
+  objektid,
+}: {
+  kliendid: Klient[];
+  objektid: Objekt[];
+}) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [err, setErr] = useState<string | null>(null);
@@ -164,45 +172,12 @@ export function UusPakkumineForm() {
         </div>
       </div>
 
-      {/* Tellija ja objekt */}
+      {/* Klient + Objekt picker (Faas A) */}
       <div className="space-y-3">
         <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
           Tellija ja objekt
         </h3>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-1 sm:col-span-2">
-            <Label htmlFor="objekt">
-              Objekt <span className="text-vk-red">*</span>
-            </Label>
-            <Input id="objekt" name="objekt" placeholder="nt Tamsalu Ääsi 2 KVVK rekonstr." required />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="projekti_nr">Projekti nr</Label>
-            <Input id="projekti_nr" name="projekti_nr" placeholder="nt 22028" />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="tellija_nimi">Tellija nimi</Label>
-            <Input id="tellija_nimi" name="tellija_nimi" placeholder="nt Eesti Ehitus OÜ või Jaan Tamm" />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="tellija_telefon">Tellija telefon</Label>
-            <Input
-              id="tellija_telefon"
-              name="tellija_telefon"
-              type="tel"
-              placeholder="nt +372 5xxx xxxx"
-            />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="tellija_email">Tellija e-post</Label>
-            <Input
-              id="tellija_email"
-              name="tellija_email"
-              type="email"
-              placeholder="nt info@example.ee"
-            />
-          </div>
-        </div>
+        <KlientObjektPicker kliendid={kliendid} objektid={objektid} />
       </div>
 
       {/* Skaalategurid (scalar veerud — kasutusel kortermaja malli auto-arvutuses) */}

@@ -3,11 +3,12 @@ import { cn } from "@/lib/utils";
 
 const navItems = [
   { href: "/", label: "Avaleht" },
+  { href: "/kliendid", label: "Kliendid" },
+  { href: "/pakkumised", label: "Pakkumised" },
   { href: "/kataloog", label: "Kataloog" },
   { href: "/grupid", label: "Teenused" },
   { href: "/komplektid", label: "Komplektid" },
   { href: "/hinnakirjad", label: "Hinnakirjad" },
-  { href: "/pakkumised", label: "Pakkumised" },
   { href: "/seaded", label: "Seaded" },
 ];
 

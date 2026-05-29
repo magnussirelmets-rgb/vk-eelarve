@@ -244,9 +244,67 @@ export const PAKKUMISE_STAATUS_LABEL: Record<PakkumiseStaatus, string> = {
   kaotatud: "Kaotatud",
 };
 
+// 0025: Klient + Objekt hierarhia (Faas A)
+export type KliendiTüüp = "eraisik" | "juriidiline";
+
+export const KLIENDI_TÜÜP_LABEL: Record<KliendiTüüp, string> = {
+  eraisik: "Eraisik",
+  juriidiline: "Juriidiline isik",
+};
+
+export type Klient = {
+  id: string;
+  nimi: string;
+  tüüp: KliendiTüüp;
+  email: string | null;
+  telefon: string | null;
+  registrikood: string | null;
+  km_kohustuslane: boolean;
+  km_nr: string | null;
+  märkused: string | null;
+  loodud: string;
+  uuendatud: string;
+};
+
+export type HooneTüüp =
+  | "kortermaja"
+  | "eramaja"
+  | "rida_paarismaja"
+  | "ärihoone"
+  | "tööstushoone"
+  | "muu";
+
+export const HOONE_TÜÜP_LABEL: Record<HooneTüüp, string> = {
+  kortermaja: "Kortermaja",
+  eramaja: "Eramaja",
+  rida_paarismaja: "Rida-/paarismaja",
+  ärihoone: "Ärihoone",
+  tööstushoone: "Tööstushoone",
+  muu: "Muu",
+};
+
+export type Objekt = {
+  id: string;
+  klient_id: string;
+  nimi: string;
+  aadress: string | null;
+  projekti_nr: string | null;
+  hoone_tüüp: HooneTüüp | null;
+  korterite_arv: number | null;
+  korruste_arv: number | null;
+  pindala_m2: number | null;
+  märkused: string | null;
+  loodud: string;
+  uuendatud: string;
+};
+
 export type Pakkumine = {
   id: string;
   vkp_nr: string;
+  // 0025: FK kliendi + objekti juurde. NULL = ajalooline pakkumine v. kustutatud
+  klient_id: string | null;
+  objekt_id: string | null;
+  // Snapshot string-väljad — säilita pakkumise loomise hetkene info
   tellija_nimi: string | null;
   tellija_email: string | null;
   tellija_telefon: string | null;
