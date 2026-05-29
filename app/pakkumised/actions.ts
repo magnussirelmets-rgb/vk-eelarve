@@ -1158,6 +1158,52 @@ export async function lisaKomplektPakkumisse(input: {
   return { ok: true, lisatudRidu: count ?? positsioonid.length };
 }
 
+/**
+ * Loob uue pakkumise SAMA objektile/tellijale viidatud allik-pakkumise põhjal.
+ * Kopib: objekt, projekti_nr, tellija_nimi/email/telefon, mall, mall_andmed.
+ * EI kopi: positsioonid, mahutabelid, märkused, kuupäev (uuendab praegusele).
+ *
+ * Kasutusala: Magnus on teinud "Veskijärve · Konditsioneerid" pakkumise ja
+ * tahab sama objektile teha eraldi "Küttesüsteem" pakkumise — klient/objekti
+ * ei pea uuesti sisestama.
+ */
+export async function looPakkumineSamaleObjektile(
+  algneId: string,
+): Promise<{ ok: true; id: string; vkp_nr: string } | { ok: false; error: string }> {
+  if (!algneId) return { ok: false, error: "Algse pakkumise ID puudub" };
+  const sb = getServerSupabase();
+
+  const { data: algne } = await sb
+    .from("pakkumised")
+    .select("*")
+    .eq("id", algneId)
+    .maybeSingle();
+  if (!algne) return { ok: false, error: "Algse pakkumise ei leitud" };
+  const a = algne as Record<string, unknown>;
+
+  const vkp_nr = await nextVkpNr(sb);
+  const { data: created, error } = await sb
+    .from("pakkumised")
+    .insert({
+      vkp_nr,
+      objekt: a.objekt,
+      projekti_nr: a.projekti_nr,
+      tellija_nimi: a.tellija_nimi,
+      tellija_email: a.tellija_email,
+      tellija_telefon: a.tellija_telefon,
+      mall: a.mall,
+      mall_andmed: a.mall_andmed,
+      // Skaalategureid EI kopita (uus pakkumine = uus skoop)
+      staatus: "mustand",
+    })
+    .select("id, vkp_nr")
+    .single();
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath("/pakkumised");
+  return { ok: true, id: created.id, vkp_nr: created.vkp_nr };
+}
+
 export async function kustutaPakkumine(
   pakkumineId: string,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
