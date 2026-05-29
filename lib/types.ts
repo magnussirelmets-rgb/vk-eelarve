@@ -141,6 +141,11 @@ export type HinnakirjaRida = {
   kirjeldus: string | null;
   // 0006: tootegrupp (Isolatsioon, PE-X torustik jne)
   tootegrupp_id: string | null;
+  // 0022: tähis (DN20, K110, 1 1/4" jne) — Magnuse otsingul peamine identifikaator
+  tähis: string | null;
+  // 0024: placeholder väärtused tootegrupi template_kirjeldus jaoks
+  // Nt {"kw": 10.2, "mudel": "SWC 102", "maht": 200}
+  mudel_andmed: Record<string, string | number | null> | null;
   loodud: string;
   uuendatud: string;
 };
@@ -160,6 +165,11 @@ export type Tootegrupp = {
   kate_koefitsient_override: number | null;
   tüüp: TootegrupiTüüp;
   märkused: string | null;
+  // 0021: Faas 1 — kirjelduste mass-haldus tootegrupi tasandil
+  // template_kirjeldus toetab placeholder'eid {kw} {mudel} {maht} jne (vt 0024 mudel_andmed)
+  template_kirjeldus: string | null;
+  pakkumise_kirjeldus: string | null;
+  garantii_aastad: number | null;
   loodud: string;
   uuendatud: string;
 };
