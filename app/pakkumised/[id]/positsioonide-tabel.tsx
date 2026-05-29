@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Trash2, Loader2, AlertTriangle, Plus, FolderTree, Percent, Check } from "lucide-react";
+import { Trash2, Loader2, AlertTriangle, Plus, FolderTree, Percent, Check, Pencil, X } from "lucide-react";
 import type { Positsioon } from "@/lib/types";
 import { formatEur, formatNum } from "@/lib/utils";
 import { LisaVaruDialog } from "./lisa-varu-dialog";
@@ -30,6 +30,9 @@ import { useEffect, useRef } from "react";
 import { ToodeValija } from "./toote-valija";
 import { LisaPositsioonDialog } from "./lisa-positsioon-dialog";
 
+// SEKT_KIRJELDUS = vaikenimed standardkoodidele. Kasutame AINULT siis kui
+// kasutaja sektsioon väärtus on ainult kood (nt "711"). Kui kasutaja on
+// lisanud oma nime (nt "711 Puurkaevude rajamine"), siis tema väärtus jääb peale.
 const SEKT_KIRJELDUS: Record<string, string> = {
   "711": "Veevarustus",
   "712": "Kanalisatsioon",
@@ -39,6 +42,18 @@ const SEKT_KIRJELDUS: Record<string, string> = {
   "723": "Soojussõlm",
   "724": "Ventilatsioon",
 };
+
+function sektsiooniLabel(sekt: string | null | undefined): string {
+  if (!sekt) return "(määramata)";
+  const trimmed = String(sekt).trim();
+  if (!trimmed) return "(määramata)";
+  const code = sektsiooniKood(trimmed);
+  // Kui väärtus on AINULT kood (nt "711") ja meil on vaikenimi → liidame
+  if (code && trimmed === code && SEKT_KIRJELDUS[code]) {
+    return `${code} ${SEKT_KIRJELDUS[code]}`;
+  }
+  return trimmed;
+}
 
 const ALAMSEKT_PLACEHOLDER = "(üldine)"; // kuvatakse kui alamsektsioon puudub
 
@@ -96,6 +111,44 @@ export function PositsioonideTabel({ pakkumineId, positsioonid, kate_koefitsient
   const [addCtx, setAddCtx] = useState<{ sektsioon: string; alamsektsioon: string } | null>(null);
   const [varuCtx, setVaruCtx] = useState<{ sektsioon: string; alamsektsioon: string } | null>(null);
   const [, startNav] = useTransition();
+
+  // Inline-edit sektsiooni nime jaoks
+  const [editingSekt, setEditingSekt] = useState<string | null>(null);
+  const [editSektNimi, setEditSektNimi] = useState("");
+  const [editSektBusy, setEditSektBusy] = useState(false);
+
+  async function alustaSektEditi(sekt: string) {
+    setEditingSekt(sekt);
+    setEditSektNimi(sekt === "(määramata)" ? "" : sekt);
+  }
+  function tühistaSektEdit() {
+    setEditingSekt(null);
+    setEditSektNimi("");
+  }
+  async function salvestaSektEdit(originaalSekt: string, ridadeIdid: string[]) {
+    const uusNimi = editSektNimi.trim();
+    if (!uusNimi) {
+      setMsg({ kind: "err", text: "Sektsiooni nimi ei tohi olla tühi" });
+      return;
+    }
+    if (uusNimi === originaalSekt) {
+      tühistaSektEdit();
+      return;
+    }
+    setEditSektBusy(true);
+    setMsg(null);
+    const r = await muudaMassiSektsioon(ridadeIdid, uusNimi);
+    setEditSektBusy(false);
+    if (r.ok) {
+      setMsg({ kind: "ok", text: `Sektsioon "${originaalSekt}" → "${uusNimi}" (${r.uuendatud} rida)` });
+      tühistaSektEdit();
+      // Kui aktiivne filter oli vana nimega, säilita filter uue nimega
+      if (sektsiooniFilter === originaalSekt) setSektsiooniFilter(uusNimi);
+      startNav(() => router.refresh());
+    } else {
+      setMsg({ kind: "err", text: r.error });
+    }
+  }
 
   function avaLisaDialog(sektsioon = "", alamsektsioon = "") {
     setAddCtx({ sektsioon, alamsektsioon });
@@ -391,8 +444,7 @@ export function PositsioonideTabel({ pakkumineId, positsioonid, kate_koefitsient
               Kõik <span className="ml-1 text-xs opacity-70">{positsioonid.length}</span>
             </button>
             {sections.map(([key, count]) => {
-              const code = sektsiooniKood(key);
-              const label = code && SEKT_KIRJELDUS[code] ? `${code} ${SEKT_KIRJELDUS[code]}` : key;
+              const label = sektsiooniLabel(key);
               return (
                 <div key={key} className="flex items-center gap-1">
                   <button
@@ -568,9 +620,11 @@ export function PositsioonideTabel({ pakkumineId, positsioonid, kate_koefitsient
                   </TableRow>
                 ) : (
                   grouped.flatMap(([sekt, subList]) => {
-                    const code = sektsiooniKood(sekt);
-                    const sektLabel = code && SEKT_KIRJELDUS[code] ? `${code} ${SEKT_KIRJELDUS[code]}` : sekt;
+                    const sektLabel = sektsiooniLabel(sekt);
                     const sektCalc = sektsiooniArvutus.get(sekt);
+                    const sektRidadeIdid: string[] = [];
+                    for (const [, rrs] of subList) for (const r of rrs) sektRidadeIdid.push(r.id);
+                    const isEditingThisSekt = editingSekt === sekt;
                     const renderedRows: React.ReactNode[] = [];
                     renderedRows.push(
                       <TableRow key={`hdr-${sekt}`} className="bg-muted/30">
@@ -578,29 +632,86 @@ export function PositsioonideTabel({ pakkumineId, positsioonid, kate_koefitsient
                           colSpan={8}
                           className="py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
                         >
-                          <span className="inline-flex items-center gap-3">
-                            <span>{sektLabel}</span>
-                            {sektCalc ? (
-                              <span className="font-mono text-vk-navy">
-                                · {sektCalc.linkitud}/{sektCalc.kokkuRidu} linkitud
+                          <span className="inline-flex flex-wrap items-center gap-3">
+                            {isEditingThisSekt ? (
+                              <span className="inline-flex items-center gap-1.5">
+                                <Input
+                                  autoFocus
+                                  value={editSektNimi}
+                                  onChange={(e) => setEditSektNimi(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                      e.preventDefault();
+                                      salvestaSektEdit(sekt, sektRidadeIdid);
+                                    } else if (e.key === "Escape") {
+                                      tühistaSektEdit();
+                                    }
+                                  }}
+                                  disabled={editSektBusy}
+                                  className="h-7 w-72 text-xs uppercase tracking-wide text-vk-navy"
+                                  placeholder="nt 723 Soojusallikas"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => salvestaSektEdit(sekt, sektRidadeIdid)}
+                                  disabled={editSektBusy}
+                                  className="rounded bg-vk-blue px-2 py-1 text-[10px] font-medium normal-case text-white hover:bg-vk-blue/90"
+                                  title="Salvesta sektsiooni uus nimi (Enter)"
+                                >
+                                  {editSektBusy ? (
+                                    <Loader2 className="inline h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <Check className="inline h-3 w-3" />
+                                  )}
+                                  Salvesta
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={tühistaSektEdit}
+                                  disabled={editSektBusy}
+                                  className="rounded border border-input bg-background px-2 py-1 text-[10px] font-normal normal-case text-muted-foreground hover:bg-muted"
+                                  title="Tühista (Esc)"
+                                >
+                                  <X className="inline h-3 w-3" />
+                                </button>
+                                <span className="text-[10px] font-normal normal-case text-muted-foreground">
+                                  mõjutab {sektRidadeIdid.length} rida
+                                </span>
                               </span>
-                            ) : null}
-                            <button
-                              type="button"
-                              onClick={() => avaLisaDialog(sekt, "")}
-                              className="rounded border border-input bg-background px-2 py-0.5 text-[10px] font-normal normal-case text-vk-blue hover:bg-vk-blue/10"
-                              title="Lisa uus rida sellele sektsioonile"
-                            >
-                              + Lisa rida
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => avaVaruDialog(sekt, "")}
-                              className="rounded border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-normal normal-case text-amber-900 hover:bg-amber-100"
-                              title="Lisa varu (% sektsiooni materjalist)"
-                            >
-                              + Varu
-                            </button>
+                            ) : (
+                              <>
+                                <span>{sektLabel}</span>
+                                {sektCalc ? (
+                                  <span className="font-mono text-vk-navy">
+                                    · {sektCalc.linkitud}/{sektCalc.kokkuRidu} linkitud
+                                  </span>
+                                ) : null}
+                                <button
+                                  type="button"
+                                  onClick={() => alustaSektEditi(sekt)}
+                                  className="rounded border border-input bg-background p-1 text-muted-foreground hover:border-vk-blue hover:text-vk-blue"
+                                  title="Muuda sektsiooni nime"
+                                >
+                                  <Pencil className="h-3 w-3" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => avaLisaDialog(sekt, "")}
+                                  className="rounded border border-input bg-background px-2 py-0.5 text-[10px] font-normal normal-case text-vk-blue hover:bg-vk-blue/10"
+                                  title="Lisa uus rida sellele sektsioonile"
+                                >
+                                  + Lisa rida
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => avaVaruDialog(sekt, "")}
+                                  className="rounded border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-normal normal-case text-amber-900 hover:bg-amber-100"
+                                  title="Lisa varu (% sektsiooni materjalist)"
+                                >
+                                  + Varu
+                                </button>
+                              </>
+                            )}
                           </span>
                         </TableCell>
                         <TableCell className="py-2 text-right font-mono text-xs font-semibold text-vk-navy">
@@ -791,8 +902,7 @@ export function PositsioonideTabel({ pakkumineId, positsioonid, kate_koefitsient
                 </TableHeader>
                 <TableBody>
                   {sections.flatMap(([key]) => {
-                    const code = sektsiooniKood(key);
-                    const sektLabel = code && SEKT_KIRJELDUS[code] ? `${code} ${SEKT_KIRJELDUS[code]}` : key;
+                    const sektLabel = sektsiooniLabel(key);
                     const v = sektsiooniArvutus.get(key);
                     if (!v) return [];
                     const rows: React.ReactNode[] = [];

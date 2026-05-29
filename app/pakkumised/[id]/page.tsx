@@ -14,6 +14,7 @@ import { PositsioonideTabel } from "./positsioonide-tabel";
 import { PakkumiseSeadedForm } from "./pakkumise-seaded";
 import { KustutaPakkumineNupp } from "../kustuta-nupp";
 import { LisaKomplektDialog } from "./lisa-komplekt-dialog";
+import { UusSamaleObjektileNupp } from "./uus-samale-objektile-nupp";
 import { KiirLisaRida } from "./kiir-lisa-rida";
 import { TarnijaFailDialog } from "./tarnija-fail-dialog";
 
@@ -59,6 +60,7 @@ export default async function PakkumineDetailPage({ params }: { params: { id: st
           </Link>
         </Button>
         <div className="flex items-center gap-2">
+          <UusSamaleObjektileNupp algneId={pakkumine.id} objektiNimi={pakkumine.objekt} />
           <Button asChild variant="outline" size="sm">
             <Link href={`/pakkumised/${params.id}/trukk`}>
               <Printer className="h-4 w-4" />
