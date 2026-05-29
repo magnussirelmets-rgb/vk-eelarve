@@ -132,8 +132,11 @@ export default async function TrükkPage({ params }: { params: { id: string } })
   const sektMap = new Map<string, SektsiooniSum>();
   // Eraldi positsioonide loend eriosa kaupa (kasutatakse "Näita ridu" tooglile)
   const sektRead = new Map<string, Positsioon[]>();
+  // Sentinel: kui sektsioon pole määratud, kasutame tühja stringi (sektsiooniLabel
+  // tagastab seejärel "" → eriosa-tabel näitab "Muud positsioonid" kursiivis).
+  // Vana "(määramata)" lekkis kliendi PDF-i.
   for (const p of positsioonid) {
-    const sekt = p.sektsioon ?? "(määramata)";
+    const sekt = p.sektsioon?.trim() || "";
     const sub = p.alamsektsioon?.trim() || ALAMSEKT_PLACEHOLDER;
     const a = arvutaRida(p, pakkumine.kate_koefitsient, pakkumine.tunnitasu);
     if (!sektMap.has(sekt)) {
