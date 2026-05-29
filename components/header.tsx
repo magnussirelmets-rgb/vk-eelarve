@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 const navItems = [
   { href: "/", label: "Avaleht" },
   { href: "/kataloog", label: "Kataloog" },
-  { href: "/grupid", label: "Teenused" },
+  { href: "/grupid", label: "Grupid" },
   { href: "/komplektid", label: "Komplektid" },
   { href: "/hinnakirjad", label: "Hinnakirjad" },
   { href: "/pakkumised", label: "Pakkumised" },

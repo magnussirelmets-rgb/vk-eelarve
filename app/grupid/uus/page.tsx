@@ -4,24 +4,34 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { ArrowLeft } from "lucide-react";
 import { UusGruppForm } from "./uus-grupp-form";
 
-export default function UusTeenusLeht() {
+export default function UusGruppLeht({
+  searchParams,
+}: {
+  searchParams: { tüüp?: string };
+}) {
+  const isToode = searchParams.tüüp !== "teenus";
+  const back = isToode ? "/grupid?tüüp=toode" : "/grupid?tüüp=teenus";
+
   return (
     <div className="space-y-6">
       <Button asChild variant="ghost" size="sm" className="-ml-2">
-        <Link href="/grupid">
+        <Link href={back}>
           <ArrowLeft className="h-4 w-4" />
-          Tagasi teenused
+          Tagasi grupid
         </Link>
       </Button>
       <div>
-        <h1 className="text-3xl font-bold tracking-tight text-vk-navy">Uus teenus</h1>
+        <h1 className="text-3xl font-bold tracking-tight text-vk-navy">
+          {isToode ? "Uus tootegrupp" : "Uus teenus"}
+        </h1>
       </div>
       <Card>
         <CardHeader>
-          <CardTitle>Teenuse andmed</CardTitle>
+          <CardTitle>{isToode ? "Tootegrupi andmed" : "Teenuse andmed"}</CardTitle>
           <CardDescription>
-            VK enda teenused mida tuuakse pakkumistesse — paigaldus, hooldus, komplekttööd jne.
-            Paigaldusaeg ja kate kanduvad teenusega seotud toodete arvutamisele pakkumisel.
+            {isToode
+              ? "Seadme-mudelite grupp ühise kirjelduse + garantiiga. Iga mudeli täpne kirjeldus genereeritakse template'ist."
+              : "VK enda teenus — paigaldus, hooldus jne. Paigaldusaeg ja kate kanduvad seotud toodete pakkumisse."}
           </CardDescription>
         </CardHeader>
         <CardContent>

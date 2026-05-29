@@ -29,12 +29,19 @@ export default async function GrupiDetailPage({ params }: { params: { id: string
   const g = grupp as unknown as Tootegrupp;
   const liikmed = (members ?? []) as unknown as HinnakirjaRidaKataloogis[];
 
+  const backHref = g.tüüp === "teenus" ? "/grupid?tüüp=teenus" : "/grupid?tüüp=toode";
+  const seadetelLabel = g.tüüp === "teenus" ? "Teenuse seaded" : "Tootegrupi seaded";
+  const seadetelDescription =
+    g.tüüp === "teenus"
+      ? "Paigaldusaeg ja kate-koefitsient kanduvad automaatselt selle teenusega seotud toodetele pakkumise arvutusel. Iga toode võib siiski oma väärtuse üle kirjutada."
+      : "Template kirjeldus + garantii rakenduvad kõikidele tootegrupi liikmetele. Iga rea mudel_andmed JSONB-st asendatakse placeholder'id ({kw}, {mudel}, {maht}).";
+
   return (
     <div className="space-y-6">
       <Button asChild variant="ghost" size="sm" className="-ml-2">
-        <Link href="/grupid">
+        <Link href={backHref}>
           <ArrowLeft className="h-4 w-4" />
-          Tagasi teenused
+          Tagasi grupid
         </Link>
       </Button>
 
@@ -45,11 +52,8 @@ export default async function GrupiDetailPage({ params }: { params: { id: string
 
       <Card>
         <CardHeader>
-          <CardTitle>Teenuse seaded</CardTitle>
-          <CardDescription>
-            Paigaldusaeg ja kate-koefitsient kanduvad automaatselt selle teenusega seotud
-            toodetele pakkumise arvutusel. Iga toode võib siiski oma väärtuse üle kirjutada.
-          </CardDescription>
+          <CardTitle>{seadetelLabel}</CardTitle>
+          <CardDescription>{seadetelDescription}</CardDescription>
         </CardHeader>
         <CardContent>
           <MuudaGruppForm grupp={g} />
@@ -70,7 +74,7 @@ export default async function GrupiDetailPage({ params }: { params: { id: string
                 bulk-assignides (vt /kataloog).
               </CardDescription>
             </div>
-            <LisaNupp grupId={g.id} grupNimi={g.nimi} grupTüüp="teenus" />
+            <LisaNupp grupId={g.id} grupNimi={g.nimi} grupTüüp={g.tüüp} />
           </div>
         </CardHeader>
         <CardContent className="p-0">
