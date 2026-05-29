@@ -40,10 +40,13 @@ const SEKT_KIRJELDUS: Record<string, string> = {
   "724": "Ventilatsioon",
 };
 
+// PDF-klientvaates: kui kasutaja pole eriosa selgesõnaliselt sisestanud,
+// ärme näita "(määramata)" placeholder'it. Tagasta tühi string — eriosa-tabel
+// kuvab sumarrida ilma sektsiooni-pealkirjata.
 function sektsiooniLabel(sekt: string | null | undefined): string {
-  if (!sekt) return "(määramata)";
+  if (!sekt) return "";
   const trimmed = String(sekt).trim();
-  if (!trimmed) return "(määramata)";
+  if (!trimmed) return "";
   const code = sektsiooniKood(trimmed);
   if (code && trimmed === code && SEKT_KIRJELDUS[code]) {
     return `${code} ${SEKT_KIRJELDUS[code]}`;

@@ -134,10 +134,16 @@ export function EriosaTabel({
                     className="border-b border-vk-navy/10 pdf-keep-with-next"
                   >
                     <td className="py-2.5 align-middle">
-                      <div className="flex items-stretch gap-2.5">
-                        <span className="-my-2.5 w-1 shrink-0 bg-vk-blue" />
-                        <span className="font-semibold text-vk-navy">{v.sektLabel}</span>
-                      </div>
+                      {v.sektLabel ? (
+                        <div className="flex items-stretch gap-2.5">
+                          <span className="-my-2.5 w-1 shrink-0 bg-vk-blue" />
+                          <span className="font-semibold text-vk-navy">{v.sektLabel}</span>
+                        </div>
+                      ) : (
+                        <span className="text-vk-navy italic text-xs text-muted-foreground">
+                          Muud positsioonid
+                        </span>
+                      )}
                     </td>
                     {!peidaMaterjal ? (
                       <>
